@@ -50,6 +50,8 @@ async def search(update: Update, context: CallbackContext) -> None:
                 salary_from = salary.get('from')
                 salary_to = salary.get('to')
                 currency = salary.get('currency')
+                if currency == "RUR":
+                    currency = "₽"
                 salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
                     f"{salary_from} {currency}" if salary_from else \
                         f"{salary_to} {currency}" if salary_to else "Зарплата не указана"

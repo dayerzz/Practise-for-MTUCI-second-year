@@ -53,25 +53,3 @@ def save_vacancies_to_db(vacancies, db_session):
         )
         db_session.add(db_vacancy)
     db_session.commit()
-
-
-def main():
-    search_text = "Python developer"
-    area = 1  # Москва
-    page = 0
-    per_page = 10
-
-    data = get_vacancies(search_text, area, page, per_page)
-
-    if data:
-        vacancies = data.get('items', [])
-
-        db_session = SessionLocal()
-        save_vacancies_to_db(vacancies, db_session)
-        db_session.close()
-    else:
-        print("Нет данных для отображения.")
-
-
-if __name__ == "__main__":
-    main()
