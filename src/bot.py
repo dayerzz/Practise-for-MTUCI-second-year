@@ -116,6 +116,12 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
         count_message = f"Найдено {len(filtered_vacancies)} вакансий\n\n"
         await update.message.reply_text(count_message + (response or 'Нет найденных вакансий.'))
 
+        for response in response_texts:
+            if len(response) > 4096:
+                for i in range(0, len(response), 4096):
+                    await update.message.reply_text(response[i:i + 4096])
+            else:
+                await update.message.reply_text(response)
     else:
         await update.message.reply_text('Произошла ошибка при получении данных.')
 
