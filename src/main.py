@@ -1,39 +1,39 @@
+import aiohttp
 import requests
 from sqlalchemy.orm import Session
 from models import Vacancy
 
 
-def get_vacancies(search_text, area=1, pages=5, per_page=20):
-    """
-    Функция для получения вакансий с hh.ru по заданным параметрам.
+async def get_vacancies(query, city, pages=1):
+    base_url = "https://api.hh.ru/vacancies"
+    vacancies = []
 
-    :param search_text: текст для поиска вакансий
-    :param area: код региона (1 - Москва, 2 - Санкт-Петербург и т.д.)
-    :param pages: количество страниц для парсинга
-    :param per_page: количество вакансий на странице (максимум 100)
-    :return: список всех вакансий со всех страниц
-    """
-    url = "https://api.hh.ru/vacancies"
-    all_vacancies = []
+    # Получение города ID
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.hh.ru/suggests/areas?text={city}") as city_response:
+            city_data = await city_response.json()
+            if city_data['items']:
+                city_id = city_data['items'][0]['id']
+            else:
+                raise ValueError(f"Город {city} не найден")
 
-    for page in range(pages):
-        params = {
-            "text": search_text,
-            "area": area,
-            "page": page,
-            "per_page": per_page
-        }
+    params = {
+        "text": query,
+        "area": city_id,  # ID города
+        "per_page": 100  # Количество вакансий на страницу
+    }
 
-        response = requests.get(url, params=params)
+    async with aiohttp.ClientSession() as session:
+        for page in range(pages):
+            params['page'] = page
+            async with session.get(base_url, params=params) as response:
+                result = await response.json()
+                vacancies.extend(result['items'])
 
-        if response.status_code == 200:
-            data = response.json()
-            all_vacancies.extend(data.get('items', []))
-        else:
-            print(f"Ошибка: {response.status_code}")
-            break
+                if result['pages'] <= page:
+                    break  # Достигнут конец страниц
 
-    return all_vacancies
+    return vacancies
 
 
 def save_vacancies_to_db(vacancies, db_session):

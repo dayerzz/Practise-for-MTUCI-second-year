@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackContext)
@@ -18,7 +19,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-ASKING_VACANCY, ASKING_SKILLS, ASKING_SALARY_FROM, ASKING_SALARY_TO, ASKING_WORK_FORMAT = range(5)
+ASKING_CITY, ASKING_VACANCY, ASKING_SKILLS, ASKING_SALARY_FROM, ASKING_SALARY_TO, ASKING_WORK_FORMAT = range(6)
 user_query = {}
 
 
@@ -29,6 +30,12 @@ async def start(update: Update, context: CallbackContext) -> None:
 
 
 async def search(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text('В каком городе вы ищете работу?')
+    return ASKING_CITY
+
+
+async def city(update: Update, context: CallbackContext) -> int:
+    user_query['city'] = update.message.text
     await update.message.reply_text('Какую вакансию вы хотите найти?')
     return ASKING_VACANCY
 
@@ -67,11 +74,15 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     user_query['salary_to'] = int(salary_to) if salary_to != '>' else None
 
     query = f"{user_query.get('title', '')} {user_query.get('skills', '')} {user_query.get('work_format', '')}".strip()
-    await update.message.reply_text(f'Ищу вакансии для запроса: {query}')
+    await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {user_query["city"]}')
 
     # Получение данных
     max_pages = 5
-    all_vacancies = get_vacancies(query, pages=max_pages)
+    try:
+        all_vacancies = await asyncio.wait_for(get_vacancies(query, user_query['city'], pages=max_pages), timeout=30.0)
+    except asyncio.TimeoutError:
+        await update.message.reply_text('Время ожидания запроса истекло. Попробуйте снова.')
+        return ConversationHandler.END
 
     db_session = SessionLocal()
 
@@ -141,6 +152,7 @@ def main() -> None:
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('search', search)],
         states={
+            ASKING_CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, city)],
             ASKING_VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, title)],
             ASKING_SKILLS: [MessageHandler(filters.TEXT & ~filters.COMMAND, skills)],
             ASKING_WORK_FORMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, work_format)],
