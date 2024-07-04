@@ -1,6 +1,4 @@
 import aiohttp
-import requests
-from sqlalchemy.orm import Session
 from models import Vacancy
 
 
@@ -37,12 +35,6 @@ async def get_vacancies(query: str, city: str, pages: int = 1):
 
 
 def save_vacancies_to_db(vacancies, db_session):
-    """
-    Функция для сохранения данных о вакансиях в базу данных.
-
-    :param vacancies: список вакансий
-    :param db_session: сессия базы данных
-    """
     existing_vacancies = db_session.query(Vacancy.url).all()
     existing_urls = {url[0] for url in existing_vacancies}
 
@@ -62,9 +54,5 @@ def save_vacancies_to_db(vacancies, db_session):
                 url=vacancy.get('alternate_url')
             )
             db_session.add(db_vacancy)
-        else:
-            existing_vacancy = db_session.query(Vacancy).filter(Vacancy.url == vacancy['alternate_url']).first()
-            if existing_vacancy:
-                existing_vacancy.status = 'не актуально'
 
     db_session.commit()
