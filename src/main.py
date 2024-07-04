@@ -1,5 +1,6 @@
 import aiohttp
 from models import Vacancy
+from sqlalchemy import or_
 
 
 async def get_vacancies(query: str, city: str, pages: int = 1):
@@ -56,3 +57,25 @@ def save_vacancies_to_db(vacancies, db_session):
             db_session.add(db_vacancy)
 
     db_session.commit()
+
+
+def search_db_vacancies(query, city, skills, salary_from, salary_to, db_session):
+    query = db_session.query(Vacancy)
+
+    if query:
+        query = query.filter(Vacancy.name.ilike(f"%{query}%"))
+
+    if city:
+        query = query.filter(Vacancy.employer.ilike(f"%{city}%"))
+
+    if skills:
+        skill_filters = [Vacancy.description.ilike(f"%{skill}%") for skill in skills]
+        query = query.filter(or_(*skill_filters))
+
+    if salary_from:
+        query = query.filter(Vacancy.salary_from >= salary_from)
+
+    if salary_to:
+        query = query.filter(Vacancy.salary_to <= salary_to)
+
+    return query.all()

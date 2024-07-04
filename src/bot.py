@@ -3,7 +3,7 @@ import logging
 from telegram import Update
 from telegram.ext import (Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackContext)
 from models import Vacancy, SessionLocal
-from main import get_vacancies, save_vacancies_to_db
+from main import get_vacancies, save_vacancies_to_db, search_db_vacancies
 from dotenv import load_dotenv
 import os
 
@@ -76,41 +76,51 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {city}')
 
     # Получение данных
-    max_pages = 3
+    max_pages = 1
     try:
-        all_vacancies = await asyncio.wait_for(get_vacancies(query, city, pages=max_pages), timeout=30.0)
+        all_vacancies = await asyncio.wait_for(get_vacancies(query, city, pages=max_pages), timeout=360.0)
     except asyncio.TimeoutError:
         await update.message.reply_text('Время ожидания запроса истекло. Попробуйте снова.')
         return ConversationHandler.END
 
     db_session = SessionLocal()
 
-    if all_vacancies:
-        # Фильтры
-        filtered_vacancies = []
-        for vac in all_vacancies:
-            if isinstance(vac, dict):
-                salary = vac.get('salary')
-                if salary:
-                    vac_salary_from = salary.get('from') or 0
-                    vac_salary_to = salary.get('to') or float('inf')
-                    if (user_query['salary_from'] is not None and vac_salary_from < user_query['salary_from']) or \
-                            (user_query['salary_to'] is not None and vac_salary_to > user_query['salary_to']):
-                        continue
+    db_vacancies = search_db_vacancies(
+        user_query['title'],
+        user_query['city'],
+        user_query['skills'],
+        user_query['salary_from'],
+        user_query['salary_to'],
+        db_session
+    )
 
-                if user_query['skills']:
-                    description = vac.get('description', '').lower() if vac.get('description') else ""
-                    requirements = vac.get('snippet', {}).get('requirement', '').lower() if vac.get(
-                        'snippet') and vac.get('snippet').get('requirement') else ""
-                    if not any(skill in description or skill in requirements for skill in user_query['skills']):
-                        continue
+    filtered_vacancies = []
+    for vac in all_vacancies + db_vacancies:
+        if isinstance(vac, dict):
+            salary = vac.get('salary')
+            if salary:
+                vac_salary_from = salary.get('from') or 0
+                vac_salary_to = salary.get('to') or float('inf')
+                if (user_query['salary_from'] is not None and vac_salary_from < user_query['salary_from']) or \
+                        (user_query['salary_to'] is not None and vac_salary_to > user_query['salary_to']):
+                    continue
 
-                filtered_vacancies.append(vac)
+            if user_query['skills']:
+                description = vac.get('description', '').lower() if vac.get('description') else ""
+                requirements = vac.get('snippet', {}).get('requirement', '').lower() if vac.get(
+                    'snippet') and vac.get('snippet').get('requirement') else ""
+                if not any(skill in description or skill in requirements for skill in user_query['skills']):
+                    continue
 
-        save_vacancies_to_db(filtered_vacancies, db_session)
+            filtered_vacancies.append(vac)
+        else:
+            filtered_vacancies.append(vac)
 
-        response_texts = []
-        for vac in filtered_vacancies:
+    save_vacancies_to_db(filtered_vacancies, db_session)
+
+    response_texts = []
+    for vac in filtered_vacancies:
+        if isinstance(vac, dict):
             salary = vac.get('salary')
             if salary:
                 salary_from = salary.get('from')
@@ -120,24 +130,39 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
                     currency = "₽"
                 salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
                     f"{salary_from} {currency}" if salary_from else \
-                    f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
+                        f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
             else:
                 salary_str = "Зарплата не указана"
 
             response_text = f"{vac['name']} - {vac['employer']['name']}\n{salary_str}\n{vac['alternate_url']}"
             response_texts.append(response_text)
+        else:
+            salary_from = vac.salary_from
+            salary_to = vac.salary_to
+            currency = vac.currency
+            salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
+                f"{salary_from} {currency}" if salary_from else \
+                    f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
 
-        count_message = f"Найдено {len(filtered_vacancies)} вакансий\n\n"
-        await update.message.reply_text(count_message)
+            response_text = f"{vac.name} - {vac.employer}\n{salary_str}\n{vac.url}"
+            response_texts.append(response_text)
 
-        for response in response_texts:
-            if len(response) > 4096:
-                for i in range(0, len(response), 4096):
-                    await update.message.reply_text(response[i:i + 4096])
+    count_message = f"Найдено {len(filtered_vacancies)} вакансий\n\n"
+    await update.message.reply_text(count_message)
+
+    batch_size = 20
+    current_batch = []
+
+    for i, response in enumerate(response_texts):
+        current_batch.append(response)
+        if (i + 1) % batch_size == 0 or i == len(response_texts) - 1:
+            batch_message = "\n\n".join(current_batch)
+            if len(batch_message) > 4096:
+                for j in range(0, len(batch_message), 4096):
+                    await update.message.reply_text(batch_message[j:j + 4096])
             else:
-                await update.message.reply_text(response)
-    else:
-        await update.message.reply_text('Произошла ошибка при получении данных.')
+                await update.message.reply_text(batch_message)
+            current_batch = []
 
     db_session.close()
     return ConversationHandler.END
