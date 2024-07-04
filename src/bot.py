@@ -2,7 +2,7 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackContext)
-from models import Vacancy, SessionLocal
+from models import SessionLocal
 from main import get_vacancies, save_vacancies_to_db, search_db_vacancies
 from dotenv import load_dotenv
 import os
@@ -71,7 +71,6 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     user_query['salary_to'] = int(salary_to) if salary_to != '>' else None
 
     query = f"{user_query.get('title', '')}".strip()
-    # skills = ', '.join(user_query.get('skills', []))
     city = user_query.get("city", "")
     await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {city}')
 
@@ -97,19 +96,15 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     filtered_vacancies = []
     for vac in all_vacancies + db_vacancies:
         if isinstance(vac, dict):
+            if user_query['title'].lower() not in vac.get('name', '').lower():
+                continue
+
             salary = vac.get('salary')
             if salary:
                 vac_salary_from = salary.get('from') or 0
                 vac_salary_to = salary.get('to') or float('inf')
                 if (user_query['salary_from'] is not None and vac_salary_from < user_query['salary_from']) or \
                         (user_query['salary_to'] is not None and vac_salary_to > user_query['salary_to']):
-                    continue
-
-            if user_query['skills']:
-                description = vac.get('description', '').lower() if vac.get('description') else ""
-                requirements = vac.get('snippet', {}).get('requirement', '').lower() if vac.get(
-                    'snippet') and vac.get('snippet').get('requirement') else ""
-                if not any(skill in description or skill in requirements for skill in user_query['skills']):
                     continue
 
             filtered_vacancies.append(vac)
@@ -130,7 +125,7 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
                     currency = "₽"
                 salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
                     f"{salary_from} {currency}" if salary_from else \
-                        f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
+                    f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
             else:
                 salary_str = "Зарплата не указана"
 
@@ -142,7 +137,7 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
             currency = vac.currency
             salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
                 f"{salary_from} {currency}" if salary_from else \
-                    f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
+                f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
 
             response_text = f"{vac.name} - {vac.employer}\n{salary_str}\n{vac.url}"
             response_texts.append(response_text)

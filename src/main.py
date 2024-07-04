@@ -19,6 +19,7 @@ async def get_vacancies(query: str, city: str, pages: int = 1):
     params = {
         "text": query,
         "area": city_id,
+        "search_field": "name",
         "per_page": 100
     }
 
