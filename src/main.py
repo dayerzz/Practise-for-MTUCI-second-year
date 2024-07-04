@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 from models import Vacancy
 
 
-async def get_vacancies(query, city, pages=1):
+async def get_vacancies(query: str, city: str, pages: int = 1):
     base_url = "https://api.hh.ru/vacancies"
     vacancies = []
 
-    # Получение города ID
+    # Получение города по ID
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://api.hh.ru/suggests/areas?text={city}") as city_response:
             city_data = await city_response.json()
@@ -19,8 +19,8 @@ async def get_vacancies(query, city, pages=1):
 
     params = {
         "text": query,
-        "area": city_id,  # ID города
-        "per_page": 100  # Количество вакансий на страницу
+        "area": city_id,
+        "per_page": 100
     }
 
     async with aiohttp.ClientSession() as session:
@@ -31,7 +31,7 @@ async def get_vacancies(query, city, pages=1):
                 vacancies.extend(result['items'])
 
                 if result['pages'] <= page:
-                    break  # Достигнут конец страниц
+                    break
 
     return vacancies
 

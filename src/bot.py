@@ -48,14 +48,11 @@ async def title(update: Update, context: CallbackContext) -> int:
 
 async def skills(update: Update, context: CallbackContext) -> int:
     skills = update.message.text
-    user_query['skills'] = skills if skills != '>' else ''
-    await update.message.reply_text('Какой формат работы вас интересует? Если хотите пропустить этот шаг, напишите ">".')
-    return ASKING_WORK_FORMAT
+    if skills != '>':
+        user_query['skills'] = [skill.strip().lower() for skill in skills.split(',')]
+    else:
+        user_query['skills'] = []
 
-
-async def work_format(update: Update, context: CallbackContext) -> int:
-    work_format = update.message.text
-    user_query['work_format'] = work_format if work_format != '>' else ''
     await update.message.reply_text('Укажите минимальную зарплату (в рублях). Если хотите пропустить этот шаг,'
                                     ' напишите ">".')
     return ASKING_SALARY_FROM
@@ -73,13 +70,15 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     salary_to = update.message.text
     user_query['salary_to'] = int(salary_to) if salary_to != '>' else None
 
-    query = f"{user_query.get('title', '')} {user_query.get('skills', '')} {user_query.get('work_format', '')}".strip()
-    await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {user_query["city"]}')
+    query = f"{user_query.get('title', '')}".strip()
+    # skills = ', '.join(user_query.get('skills', []))
+    city = user_query.get("city", "")
+    await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {city}')
 
     # Получение данных
-    max_pages = 5
+    max_pages = 3
     try:
-        all_vacancies = await asyncio.wait_for(get_vacancies(query, user_query['city'], pages=max_pages), timeout=30.0)
+        all_vacancies = await asyncio.wait_for(get_vacancies(query, city, pages=max_pages), timeout=30.0)
     except asyncio.TimeoutError:
         await update.message.reply_text('Время ожидания запроса истекло. Попробуйте снова.')
         return ConversationHandler.END
@@ -98,9 +97,14 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
                     if (user_query['salary_from'] is not None and vac_salary_from < user_query['salary_from']) or \
                             (user_query['salary_to'] is not None and vac_salary_to > user_query['salary_to']):
                         continue
-                if user_query['work_format'] and user_query['work_format'].lower() not in vac.get('schedule', {}).get(
-                        'name', '').lower():
-                    continue
+
+                if user_query['skills']:
+                    description = vac.get('description', '').lower() if vac.get('description') else ""
+                    requirements = vac.get('snippet', {}).get('requirement', '').lower() if vac.get(
+                        'snippet') and vac.get('snippet').get('requirement') else ""
+                    if not any(skill in description or skill in requirements for skill in user_query['skills']):
+                        continue
+
                 filtered_vacancies.append(vac)
 
         save_vacancies_to_db(filtered_vacancies, db_session)
@@ -123,9 +127,8 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
             response_text = f"{vac['name']} - {vac['employer']['name']}\n{salary_str}\n{vac['alternate_url']}"
             response_texts.append(response_text)
 
-        response = '\n\n'.join(response_texts)
         count_message = f"Найдено {len(filtered_vacancies)} вакансий\n\n"
-        await update.message.reply_text(count_message + (response or 'Нет найденных вакансий.'))
+        await update.message.reply_text(count_message)
 
         for response in response_texts:
             if len(response) > 4096:
@@ -155,7 +158,6 @@ def main() -> None:
             ASKING_CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, city)],
             ASKING_VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, title)],
             ASKING_SKILLS: [MessageHandler(filters.TEXT & ~filters.COMMAND, skills)],
-            ASKING_WORK_FORMAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, work_format)],
             ASKING_SALARY_FROM: [MessageHandler(filters.TEXT & ~filters.COMMAND, salary_from)],
             ASKING_SALARY_TO: [MessageHandler(filters.TEXT & ~filters.COMMAND, salary_to)],
         },
