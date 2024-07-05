@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
 import os
@@ -19,6 +19,8 @@ class Vacancy(Base):
     salary_to = Column(Integer, nullable=True)
     currency = Column(String, nullable=True)
     url = Column(String)
+    city = Column(String)
+    skills = Column(Text, nullable=True)
 
 
 engine = create_engine(DATABASE_URL)

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import (Application, CommandHandler, ConversationHandler, MessageHandler, filters, CallbackContext)
-from models import SessionLocal
+from models import SessionLocal, Vacancy
 from main import get_vacancies, save_vacancies_to_db, search_db_vacancies
 from dotenv import load_dotenv
 import os
@@ -25,8 +25,20 @@ user_query = {}
 
 async def start(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(
-        'Привет! Я бот-парсер для поиска вакансий. Используйте команду /search, чтобы найти вакансии.'
+        'Привет! Я бот-парсер для поиска вакансий с сайта hh.ru.\n'
+        ' Я могу искать вакансии по таким критериям:\n'
+        '"Города";\n "Название";\n "Навыки пользователя";\n "Минимальная зарплата";\n "Максимальная зарплата".\n'
+        '\nДля того, чтобы ознакомиться с командами используейте'
+        'команду /help.'
     )
+
+
+async def help_command(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text('Список доступных команд:\n'
+                                    '/start - начать диалог с ботом\n'
+                                    '/search - начать поиск вакансий\n'
+                                    '/help - получить помощь по командам\n'
+                                    '/cancel - отменить текущий поиск\n')
 
 
 async def search(update: Update, context: CallbackContext) -> int:
@@ -75,7 +87,7 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {city}')
 
     # Получение данных
-    max_pages = 1
+    max_pages = 5
     try:
         all_vacancies = await asyncio.wait_for(get_vacancies(query, city, pages=max_pages), timeout=360.0)
     except asyncio.TimeoutError:
@@ -96,18 +108,23 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     filtered_vacancies = []
     for vac in all_vacancies + db_vacancies:
         if isinstance(vac, dict):
-            if user_query['title'].lower() not in vac.get('name', '').lower():
-                continue
+            salary_from = vac.get('salary', {}).get('from')
+            salary_to = vac.get('salary', {}).get('to')
+            currency = vac.get('salary', {}).get('currency')
+            url = vac.get('alternate_url')
+            name = vac.get('name')
+            employer = vac.get('employer', {}).get('name')
 
-            salary = vac.get('salary')
-            if salary:
-                vac_salary_from = salary.get('from') or 0
-                vac_salary_to = salary.get('to') or float('inf')
-                if (user_query['salary_from'] is not None and vac_salary_from < user_query['salary_from']) or \
-                        (user_query['salary_to'] is not None and vac_salary_to > user_query['salary_to']):
-                    continue
-
-            filtered_vacancies.append(vac)
+            filtered_vacancies.append(Vacancy(
+                name=name,
+                employer=employer,
+                salary_from=salary_from,
+                salary_to=salary_to,
+                currency=currency,
+                url=url,
+                city=user_query['city'],
+                skills=vac.get('snippet', {}).get('requirement')
+            ))
         else:
             filtered_vacancies.append(vac)
 
@@ -123,23 +140,41 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
                 currency = salary.get('currency')
                 if currency == "RUR":
                     currency = "₽"
-                salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
-                    f"{salary_from} {currency}" if salary_from else \
-                    f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
+
+                if salary_from is not None and salary_to is not None:
+                    salary_str = f"{salary_from} - {salary_to} {currency}"
+                elif salary_from is not None:
+                    salary_str = f"от {salary_from} {currency}"
+                elif salary_to is not None:
+                    salary_str = f"до {salary_to} {currency}"
+                else:
+                    salary_str = "Зарплата не указана"
+
+                response_text = f"{vac['name']} - {vac['employer']['name']}\n{salary_str}\n{user_query['city']}\n{vac['alternate_url']}"
+                response_texts.append(response_text)
             else:
                 salary_str = "Зарплата не указана"
 
-            response_text = f"{vac['name']} - {vac['employer']['name']}\n{salary_str}\n{vac['alternate_url']}"
-            response_texts.append(response_text)
+                response_text = f"{vac['name']} - {vac['employer']['name']}\n{salary_str}\n{user_query['city']}\n{vac['alternate_url']}"
+                response_texts.append(response_text)
         else:
             salary_from = vac.salary_from
             salary_to = vac.salary_to
             currency = vac.currency
-            salary_str = f"{salary_from} - {salary_to} {currency}" if salary_from and salary_to else \
-                f"{salary_from} {currency}" if salary_from else \
-                f"{salary_to} {currency}" if salary_to else "Зарплата не указана"
 
-            response_text = f"{vac.name} - {vac.employer}\n{salary_str}\n{vac.url}"
+            if currency == "RUR":
+                currency = "₽"
+
+            if salary_from is not None and salary_to is not None:
+                salary_str = f"{salary_from} - {salary_to} {currency}"
+            elif salary_from is not None:
+                salary_str = f"от {salary_from} {currency}"
+            elif salary_to is not None:
+                salary_str = f"до {salary_to} {currency}"
+            else:
+                salary_str = "Зарплата не указана"
+
+            response_text = f"{vac.name} - {vac.employer}\n{salary_str}\n{user_query['city']}\n{vac.url}"
             response_texts.append(response_text)
 
     count_message = f"Найдено {len(filtered_vacancies)} вакансий\n\n"
@@ -186,6 +221,7 @@ def main() -> None:
 
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
 
     application.run_polling()
 
