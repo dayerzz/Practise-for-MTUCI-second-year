@@ -87,7 +87,7 @@ async def salary_to(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(f'Ищу вакансии для запроса: {query} в городе {city}')
 
     # Получение данных
-    max_pages = 5
+    max_pages = 1
     try:
         all_vacancies = await asyncio.wait_for(get_vacancies(query, city, pages=max_pages), timeout=360.0)
     except asyncio.TimeoutError:
